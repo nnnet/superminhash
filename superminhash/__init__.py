@@ -1,11 +1,13 @@
+from __future__ import division, unicode_literals
+
 __all__ = ['utlilits']
 
 import hashlib
 import numpy as np
 import logging
-from utlilits import get_value, simhash_build_by_features 
+import collections
 
-MAX_UINT32 = np.iinfo(np.uint32).max
+from utlilits import get_value, simhash_build_by_features, superminhash_build_by_features, MAX_UINT32
 
 def _hash_function(x):
     return int(hashlib.md5(x).hexdigest(), 16)
@@ -13,7 +15,9 @@ def _hash_function(x):
 
 class Simhash(object):
 
-    def __init__(self, value, length=64, reg=r'[\w\u4e00-\u9fcc]+', tokenize_slide_width=4, hash_function=None, log=None):
+    def __init__(self, value, length=64,
+                 reg=r'[\w\u4e00-\u9fcc]+', tokenize_slide_width=4, slide_words_delimiter='',
+                 hash_function=None, log=None):
         """
         `length` is the dimensions of fingerprints
 
@@ -26,7 +30,6 @@ class Simhash(object):
         """
 
         self.length = length
-        self.reg = reg
         self.value = None
 
         if hash_function is None:
@@ -35,19 +38,152 @@ class Simhash(object):
             self.hash_function = hash_function
 
         if log is None:
-            self.log = logging.getLogger("simhash")
+            self.log = logging.getLogger(type(self).__name__.lower())
         elif isinstance(log, logging.Logger):
             self.log = log
 
-        self.value = get_value(value, self, simhash_build_by_features,
-                               reg=reg, tokenize_slide_width=tokenize_slide_width,
-                               kwargs={'hash_function' : self.hash_function, 'length' :self.length, 'reg' : reg})
+        self.value, self.v, self.masks = get_value(value, self, simhash_build_by_features,
+                               tokenize_args={'reg':reg, 'tokenize_slide_width':tokenize_slide_width, 'slide_words_delimiter':slide_words_delimiter},
+                               kwargs={'hash_function' : self.hash_function, 'push_function' : self._push, 'length' : self.length})
+
+    def _push(self, feature, hash_function, v, masks, length, calc=False):
+
+        if isinstance(feature, basestring):
+            h = hash_function(feature.encode('utf-8'))
+            w = 1
+        else:
+            assert isinstance(feature, collections.Iterable)
+            h = hash_function(feature[0].encode('utf-8'))
+            w = feature[1]
+
+        for i in range(length):
+            v[i] += w if h & masks[i] else -w
+
+        if calc:
+            value = 0
+            for i in range(length):
+                if v[i] > 0:
+                    value |= masks[i]
+            return value, v
+
+        return None, v
+
+    def push(self, feature, calc=True):
+        self.value, self.v = self._push(feature, self.hash_function, self.v, self.masks, self.length, calc=calc)
 
 
-class SuperMinHash(object):
+    def distance(self, another):
+        assert self.length == another.length
+        x = (self.value ^ another.value) & ((1 << self.length) - 1)
+        ans = 0
+        while x:
+            ans += 1
+            x &= x - 1
+        return ans
 
-    def __init__(self, value, length=64, reg=r'[\w\u4e00-\u9fcc]+', hash_function=None, log=None):
 
+class SimhashIndex(object):
+
+    def __init__(self, objs, length=64, k=2, log=None):
+        """
+        `objs` is a list of (obj_id, simhash)
+            obj_id is a string, simhash is an instance of Simhash
+        `length` is the same with the one for Simhash
+        `k` is the tolerance
+        """
+        self.k = k
+        self.length = length
+        count = len(objs)
+
+        if log is None:
+            self.log = logging.getLogger("simhash")
+        else:
+            self.log = log
+
+        self.log.info('Initializing %s data.', count)
+
+        self.bucket = collections.defaultdict(set)
+
+        for i, q in enumerate(objs):
+            if i % 10000 == 0 or i == count - 1:
+                self.log.info('%s/%s', i + 1, count)
+
+            self.add(*q)
+
+    def get_near_dups(self, simhash):
+        """
+        `simhash` is an instance of Simhash
+        return a list of obj_id, which is in type of str
+        """
+        assert simhash.length == self.length
+
+        ans = set()
+
+        for key in self.get_keys(simhash):
+            dups = self.bucket[key]
+            self.log.debug('key:%s', key)
+            if len(dups) > 200:
+                self.log.warning('Big bucket found. key:%s, len:%s', key, len(dups))
+
+            for dup in dups:
+                sim2, obj_id = dup.split(',', 1)
+                sim2 = Simhash(long(sim2, 16), self.length)
+
+                d = simhash.distance(sim2)
+                if d <= self.k:
+                    ans.add(obj_id)
+        return list(ans)
+
+    def add(self, obj_id, simhash):
+        """
+        `obj_id` is a string
+        `simhash` is an instance of Simhash
+        """
+        assert simhash.length == self.length
+
+        for key in self.get_keys(simhash):
+            v = '%x,%s' % (simhash.value, obj_id)
+            self.bucket[key].add(v)
+
+    def delete(self, obj_id, simhash):
+        """
+        `obj_id` is a string
+        `simhash` is an instance of Simhash
+        """
+        assert simhash.length == self.length
+
+        for key in self.get_keys(simhash):
+            v = '%x,%s' % (simhash.value, obj_id)
+            if v in self.bucket[key]:
+                self.bucket[key].remove(v)
+
+    @property
+    def offsets(self):
+        """
+        You may optimize this method according to <http://www.wwwconference.org/www2007/papers/paper215.pdf>
+        """
+        return [self.length // (self.k + 1) * i for i in range(self.k + 1)]
+
+    def get_keys(self, simhash):
+        for i, offset in enumerate(self.offsets):
+            if i == (len(self.offsets) - 1):
+                m = 2 ** (self.length - offset) - 1
+            else:
+                m = 2 ** (self.offsets[i + 1] - offset) - 1
+            c = simhash.value >> offset & m
+            yield '%x:%x' % (c, i)
+
+    def bucket_size(self):
+        return len(self.bucket)
+
+
+class Superminhash(object):
+
+    def __init__(self, value, length=64,
+                 reg=r'[\w\u4e00-\u9fcc]+', tokenize_slide_width=4, slide_words_delimiter='',
+                 hash_function=None, log=None):
+
+        self.length = length
         self.values = [MAX_UINT32] * length  # float64
         self.q = [-1] * length  # int64
         self.p = list(range(length))  # uint16
@@ -55,64 +191,66 @@ class SuperMinHash(object):
         self.i = 0  # int64
         self.a = length - 1  # uint16
 
-        self.length = length
-        self.reg = reg
-        self.value = None
-
         if hash_function is None:
             self.hash_function = _hash_function
         else:
             self.hash_function = hash_function
 
         if log is None:
-            self.log = logging.getLogger("superminhash")
+            self.log = logging.getLogger(type(self).__name__.lower())
         elif isinstance(log, logging.Logger):
             self.log = log
 
+        self.values, self.q, self.p, self.b, self.i, self.a = get_value(value, self, superminhash_build_by_features,
+                                                   tokenize_args={'reg': reg,
+                                                                  'tokenize_slide_width': tokenize_slide_width,
+                                                                  'slide_words_delimiter': slide_words_delimiter},
+                                                   kwargs={'hash_function': self.hash_function,
+                                                           'push_function': self._push, 'length': self.length})
 
-        self.value = get_value(value, self, simhash_build_by_features, {'hash_function' : self.hash_function, 'length' :self.length})
+    def _push(self, feature, values, q, p, b, i, a, hash_function=None):
 
+        np.random.seed(seed=(hash(feature) if hash_function is None else hash_function(feature)) % MAX_UINT32)
 
-
-    # // Push ...
-    def push(self, b, hash_function=None):
-
-        #    	// initialize pseudo-random generator with seed d
-        #    	d = metro.Hash64(b, 42)
-        #    	rnd := pcgr.New(int64(d), 0)
-        np.random.seed(seed=(hash(b) if hash_function is None else hash_function(b)) % MAX_UINT32)
-
-        for j in range(self.a):
+        for j in range(a):
             r = np.float64(np.random.randint(MAX_UINT32)) / MAX_UINT32
-            offset = np.random.randint(MAX_UINT32) % np.uint32(np.uint16(len(self.values)) - j)
+            offset = np.random.randint(MAX_UINT32) % np.uint32(np.uint16(len(values)) - j)
             k = np.uint32(j) + offset
 
-            if self.q[j] != self.i:
-                self.q[j] = self.i
-                self.p[j] = np.uint16(j)
+            if q[j] != i:
+                q[j] = i
+                p[j] = np.uint16(j)
 
-            if self.q[k] != self.i:
-                self.q[k] = self.i
-                self.p[k] = np.uint16(k)
+            if q[k] != i:
+                q[k] = i
+                p[k] = np.uint16(k)
 
-            self.p[j], self.p[k] = self.p[k], self.p[j]
+            p[j], p[k] = p[k], p[j]
             rj = r + np.float64(j)
-            if rj < self.values[self.p[j]]:
+            if rj < values[p[j]]:
 
-                jc = np.uint16(min(self.values[self.p[j]], np.float64(len(self.values) - 1)))
-                self.values[self.p[j]] = rj
+                jc = np.uint16(min(values[p[j]], np.float64(len(values) - 1)))
+                values[p[j]] = rj
                 if j < jc:
-                    self.b[jc] -= 1
-                    self.b[j] += 1
-                    while self.b[self.a] == 0:
-                        self.a -= 1
+                    b[jc] -= 1
+                    b[j] += 1
+                    while b[a] == 0:
+                        a -= 1
 
-        self.i += 1
+        i += 1
+
+        return values, q, p, b, i, a
+
+    # // Push ...
+    def push(self, feature):
+        self.values, self.q, self.p, self.b, self.i, self.a = \
+            self._push(feature, self.values, self.q, self.p, self.b, self.i, self.a, self.hash_function)
+
 
     # // Similarity ...
     def similarity(self, other):
 
-        if self.length() != other.length():
+        if self.length != other.length:
             raise ValueError("signatures not of same length, sign has length %d, while other has length %d" \
                              , len(self.values), len(other.values))
 
@@ -130,20 +268,24 @@ if __name__ == '__main__':
 
 
     def TestComplete():
-        lenght = 10000
+        length = 100
         t1 = ["hello", "world", "foo", "baz", "bar", "zomg."]
         t2 = ["hello", "world", "foo", "baz", "bar", "zomg", 'baz', 'baz', 'baz', 'baz']
 
         hash_function = None
 
-        def _create_hash(s, lenght=10, hash_function=None, minhash=None):
-            sh = SuperMinHash(lenght)
-            for i in s:
-                sh.push(i, hash_function)
-            return sh, None if minhash is None else minhash(s)
+        # def _create_hash(s, length=10, hash_function=None, minhash=None):
+        #     sh = SuperMinHash(length)
+        #     for i in s:
+        #         sh.push(i, hash_function)
+        #     return sh, None if minhash is None else minhash(s)
+        #
+        # s1, _ = _create_hash(t1, length=length, hash_function=hash_function, minhash=None)
+        # s2, _ = _create_hash(t2, length=length, hash_function=hash_function, minhash=None)
 
-        s1, _ = _create_hash(t1, lenght=lenght, hash_function=hash_function, minhash=None)
-        s2, _ = _create_hash(t2, lenght=lenght, hash_function=hash_function, minhash=None)
+        s1 = Superminhash(t1, length=length, hash_function=hash_function)
+        s2 = Superminhash(t2, length=length, hash_function=hash_function)
+
 
         sim1 = s1.similarity(s2)
         #		t.Log(sim1)
@@ -158,3 +300,16 @@ if __name__ == '__main__':
     #        print(s2.values)
 
     TestComplete()
+    # sh = Simhash('How are you? I Am fine. ablar ablar xyz blar blar blar blar blar blar blar Thanks.'
+    #              # , tokenize_slide_width=None
+    #              , slide_words_delimiter=''
+    #              # , reg=None
+    #              , log=False
+    #              )
+    # print(sh.value)
+    #
+    # sh.push('ds', calc=True)
+    # print(sh.value)
+    #
+    # sh.push('ds', calc=True)
+    # print(sh.value)
