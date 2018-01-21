@@ -53,7 +53,7 @@ def build_by_text(content, reg=r'[\w\u4e00-\u9fcc]+', tokenize_slide_width=4, sl
 
 
 def get_value(value_in, hash_type, build_by_features,
-              tokenize_args, #reg=r'[\w\u4e00-\u9fcc]+', tokenize_slide_width=4, slide_words_delimiter='',
+              tokenize_args,
               kwargs=None):
 
     if isinstance(value_in, type(hash_type)):
@@ -74,9 +74,6 @@ def get_value(value_in, hash_type, build_by_features,
     elif isinstance(value_in, long):
         if type(hash_type).__name__ == 'Simhash':
             value_out = (value_in, None, None)
-        # if type(hash_type).__name__ == 'Superminhash':
-        #     value_out = (copy.deepcopy(value_in.values), copy.deepcopy(value_in.q), copy.deepcopy(value_in.p)\
-        #                      , copy.deepcopy(value_in.b), value_in.i, value_in.a)
         else:
             raise Exception('Bad parameter with type.__name__ {0}'.format(type(value_in).__name__))
     else:
@@ -99,21 +96,6 @@ def simhash_build_by_features(features, length, hash_function, push_function):
     masks = [1 << i for i in range(length)]
     if isinstance(features, dict):
         features = features.items()
-    # for f in features:
-    #     if isinstance(f, basestring):
-    #         h = hash_function(f.encode('utf-8'))
-    #         w = 1
-    #     else:
-    #         assert isinstance(f, collections.Iterable)
-    #         h = hash_function(f[0].encode('utf-8'))
-    #         w = f[1]
-    #     for i in range(length):
-    #         v[i] += w if h & masks[i] else -w
-    #
-    # value = 0
-    # for i in range(length):
-    #     if v[i] > 0:
-    #         value |= masks[i]
 
     nb_calc = len(features) - 1
     for i, feature in enumerate(features):
