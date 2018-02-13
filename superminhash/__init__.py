@@ -259,4 +259,9 @@ class Superminhash(object):
             if element == other.values[i]:
                 sim += 1
 
-        return sim / np.float64(len(self.values))
+        return sim / np.float64(self.length)
+
+    # // Distance ...
+    def distance(self, other):
+
+        return 1 - self.similarity(other)

@@ -33,7 +33,7 @@ def _tokenize(content, reg=r'[\w\u4e00-\u9fcc]+', slide_width=4, slide_words_del
                is to specify reg=re.compile(r'\w', re.UNICODE))
     '''
 
-    ret = content.lower()
+    ret = content.decode('utf-8').lower()
 
     if not reg is None:
         ret = re.findall(reg, ret)
