@@ -16,6 +16,7 @@ if sys.version_info[0] >= 3:
     basestring = str
     unicode = str
     long = int
+    dict_items = type({}.items())
 else:
     range = xrange
 
@@ -33,7 +34,10 @@ def _tokenize(content, reg=r'[\w\u4e00-\u9fcc]+', slide_width=4, slide_words_del
                is to specify reg=re.compile(r'\w', re.UNICODE))
     '''
 
-    ret = content.decode('utf-8').lower()
+    if sys.version_info[0] >= 3:
+        ret = content.lower()
+    else:
+        ret = content.decode('utf-8').lower()
 
     if not reg is None:
         ret = re.findall(reg, ret, re.U)
@@ -96,6 +100,8 @@ def simhash_build_by_features(features, length, hash_function, push_function):
     masks = [1 << i for i in range(length)]
     if isinstance(features, dict):
         features = features.items()
+    elif isinstance(features, zip):
+        features = list(features)
 
     nb_calc = len(features) - 1
     for i, feature in enumerate(features):
@@ -116,7 +122,11 @@ def superminhash_build_by_features(features, length, hash_function, push_functio
     if isinstance(features, dict):
         features = features.items()
 
-    if isinstance(features[0], tuple):
+    if sys.version_info[0] >= 3 and isinstance(features, dict_items):
+        features = (x[0] for x in features.__iter__())
+    elif isinstance(features, zip):
+        features = (x[0] for x in features)
+    elif isinstance(features[0], tuple):
         features = (x[0] for x in features)
 
     for feature in features:

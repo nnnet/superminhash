@@ -6,11 +6,26 @@ import hashlib
 import numpy as np
 import logging
 import collections
+import sys
 
-from utlilits import get_value, simhash_build_by_features, superminhash_build_by_features, MAX_UINT32
+if sys.version_info[0] >= 3:
+    basestring = str
+    unicode = str
+    long = int
+else:
+    range = xrange
+
+try:
+    from utlilits import get_value, simhash_build_by_features, superminhash_build_by_features, MAX_UINT32
+except:
+    from superminhash.utlilits import get_value, simhash_build_by_features, superminhash_build_by_features, MAX_UINT32
 
 def _hash_function(x):
-    return int(hashlib.md5(x).hexdigest(), 16)
+    if isinstance(x, str):
+        return int(hashlib.md5(x.encode()).hexdigest(), 16)
+    else:
+        return int(hashlib.md5(x).hexdigest(), 16)
+        
 
 
 class Simhash(object):

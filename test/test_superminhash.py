@@ -45,10 +45,10 @@ class TestSimhash(TestCase):
 
     def test_sparse_features(self):
         data = [
-            'How are you? I Am fine. blar blar blar blar blar Thanks.',
-            'How are you i am fine. blar blar blar blar blar than',
-            'This is simhash test.',
-            'How are you i am fine. blar blar blar blar blar thank1'
+            u'How are you? I Am fine. blar blar blar blar blar Thanks.',
+            u'How are you i am fine. blar blar blar blar blar than',
+            u'This is simhash test.',
+            u'How are you i am fine. blar blar blar blar blar thank1'
         ]
         vec = TfidfVectorizer()
         D = vec.fit_transform(data)
@@ -79,10 +79,10 @@ class TestSimhash(TestCase):
 
 class TestSimhashIndex(TestCase):
     data = {
-        1: 'How are you? I Am fine. blar blar blar blar blar Thanks.',
-        2: 'How are you i am fine. blar blar blar blar blar than',
-        3: 'This is simhash test.',
-        4: 'How are you i am fine. blar blar blar blar blar thank1',
+        1: u'How are you? I Am fine. blar blar blar blar blar Thanks.',
+        2: u'How are you i am fine. blar blar blar blar blar than',
+        3: u'This is simhash test.',
+        4: u'How are you i am fine. blar blar blar blar blar thank1',
     }
 
     def setUp(self):
@@ -152,10 +152,10 @@ class TestSuperminhash(TestCase):
 
     def test_sparse_features(self):
         data = [
-            'How are you? I Am fine. blar blar blar blar blar Thanks.',
-            'How are you i am fine. blar blar blar blar blar than',
-            'This is Superminhash test.',
-            'How are you i am fine. blar blar blar blar blar thank1'
+            u'How are you? I Am fine. blar blar blar blar blar Thanks.',
+            u'How are you i am fine. blar blar blar blar blar than',
+            u'This is Superminhash test.',
+            u'How are you i am fine. blar blar blar blar blar thank1'
         ]
         vec = TfidfVectorizer()
         D = vec.fit_transform(data)
