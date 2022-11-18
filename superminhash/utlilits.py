@@ -73,7 +73,7 @@ def get_value(value_in, hash_type, build_by_features,
               build_by_features(
                 build_by_text(unicode(value_in), **tokenize_args)
             , **kwargs)
-    elif isinstance(value_in, collections.Iterable):
+    elif isinstance(value_in, collections.abc.Iterable):
         value_out = build_by_features(value_in, **kwargs)
     elif isinstance(value_in, long):
         if type(hash_type).__name__ == 'Simhash':
